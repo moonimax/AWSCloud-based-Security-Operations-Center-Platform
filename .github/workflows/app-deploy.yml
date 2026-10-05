@@ -1,0 +1,76 @@
+﻿name: "Track B - App DevSecOps & Deploy"
+
+on:
+  push:
+    paths:
+      - 'app/**'
+    branches:
+      - main
+      #- ci/github-actions-docker-setup
+
+jobs:
+  build-and-deploy:
+    name: "Build, Scan and Deploy"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 1. Docker Hub 로그인
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 2. Docker 이미지 빌드 및 태깅 (SHA 태그 + latest 태그)
+      - name: Build Docker Image
+        env:
+          DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          REPO_NAME: ${{ secrets.DOCKERHUB_REPO }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build \
+            -t $DOCKER_USER/$REPO_NAME:$IMAGE_TAG \
+            -t $DOCKER_USER/$REPO_NAME:latest \
+            ./app
+
+      # 3. Trivy 컨테이너 취약점 정적 분석 (경고 로그 기록용, 파이프라인 통과)
+      - name: Run Trivy Vulnerability Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPO }}:${{ github.sha }}
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+
+      # 4. 검증 완료된 이미지를 Docker Hub에 푸시
+      - name: Push to Docker Hub
+        env:
+          DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          REPO_NAME: ${{ secrets.DOCKERHUB_REPO }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker push $DOCKER_USER/$REPO_NAME:$IMAGE_TAG
+          docker push $DOCKER_USER/$REPO_NAME:latest
+
+      # 5. EC2에 SSH 접속하여 컨테이너 갱신 배포
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          REPO_NAME: ${{ secrets.DOCKERHUB_REPO }}
+          IMAGE_TAG: ${{ github.sha }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: DOCKER_USER,REPO_NAME,IMAGE_TAG
+          script: |
+            docker pull $DOCKER_USER/$REPO_NAME:$IMAGE_TAG
+            docker stop web-app || true
+            docker rm web-app || true
+            # Dockerfile EXPOSE 8080 규격에 맞춰 외부 접근(0.0.0.0:8080) 개방
+            docker run -d --name web-app -p 8080:8080 --restart unless-stopped $DOCKER_USER/$REPO_NAME:$IMAGE_TAG
+            docker image prune -af

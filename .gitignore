@@ -1,0 +1,36 @@
+﻿# Local test dashboards
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+tfplan
+*.tfplan
+
+# Environment & Secrets
+.env
+*.pem
+*.key
+
+# Docker & Logs
+*.log
+__pycache__/
+*.pyc
+
+**/nova.auto.tfvars.json
+**/nova-bedrock.tfvars.json
+**/nova-iam-policy.json
+**/*.tfplan
+**/deployment.zip
+
+# Editor swap files
+*.swp
+*.swo
+.DS_Store

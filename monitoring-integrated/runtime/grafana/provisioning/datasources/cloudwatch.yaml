@@ -1,0 +1,13 @@
+# grafana/provisioning/datasources/cloudwatch.yaml
+# Sentinel 대시보드(d1~d5, request-detail, ec2-infra)가 조회하는 CloudWatch 데이터소스.
+# EC2 인스턴스 역할(IAM Role)의 권한을 그대로 사용하므로 액세스 키를 넣지 않는다.
+apiVersion: 1
+datasources:
+  - name: CloudWatch
+    type: cloudwatch
+    uid: cloudwatch
+    access: proxy
+    editable: false
+    jsonData:
+      authType: default          # EC2 인스턴스 역할 사용 (AWS SDK Default)
+      defaultRegion: ap-northeast-2

@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title><%= post ? '글 수정' : '글쓰기' %></title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <h1><%= post ? '글 수정' : '글쓰기' %></h1>
+  <form method="post" action="<%= post ? '/board/' + post.id + '/edit' : '/board' %>">
+    <input name="title" placeholder="제목" value="<%= post ? post.title : '' %>" required><br>
+    <textarea name="content" placeholder="내용" rows="10" cols="50"><%= post ? post.content : '' %></textarea><br>
+    <button type="submit">저장</button>
+  </form>
+  <p><a href="/board">목록으로</a></p>
+</body>
+</html>

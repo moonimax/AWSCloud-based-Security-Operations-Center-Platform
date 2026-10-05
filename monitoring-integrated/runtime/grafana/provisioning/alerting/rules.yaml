@@ -1,0 +1,287 @@
+# =============================================================================
+# SOC 탐지 알림 규칙 (TC-01 ~ TC-05)  — Grafana provisioned alerting
+# =============================================================================
+# 공통: sum by (ip), WINDOW=1m, 평가주기 30s (group interval), for=0s(즉시)
+# 필드 비교는 문자열 매칭 대신 `| json | 필드="값"` 방식.
+# attack_type 은 Loki 스트림 라벨이라 셀렉터에 직접 넣고, ip 는 본문이라 `| json` 으로 뽑아 by(ip).
+#
+# ── 임계값 (여기 한 곳에서 관리) ──────────────────────────────────────────────
+#   Grafana threshold 는 'gt(초과)'만 있어서, "≥ N" 은 정수 카운트 기준 gt (N-1) 로 표현.
+#   R1 경로스캔(TC-01)  status=404            ≥ 30  →  evaluator gt 29
+#   R2 민감파일(TC-02)  attack_type=sensitive_file ≥ 1  →  gt 0   (알림만, 차단 X)
+#   R3 무차별대입(TC-03) /rest/user/login + 401 ≥ 10 →  gt 9
+#   R4 SQLi(TC-04)      attack_type=sqli        ≥ 1  →  gt 0
+#   R5 XSS(TC-05)       attack_type=xss         ≥ 1  →  gt 0
+#   R6 경로순회(TC-07)  attack_type=path_traversal ≥ 1 → gt 0  (알림만, 차단 X)
+#   ※ 리허설 중 조정하려면 각 규칙 refId C 의 evaluator.params 숫자만 바꾸면 됨.
+#
+# 라우팅(어느 규칙 → 슬랙/차단)은 이 파일이 아니라 notification policy(별도)에서
+# 아래 labels(rule=R1.., block="on/off")를 보고 연결한다. (5단계에서 wiring)
+# 차단 연결 대상: R1, R3, R4(SQLi) (label block: "on"). R2 는 절대 차단 안 함(block: "off").
+# R5, R6 는 알림만(off). 차단 분기는 block-ip Lambda 가 block 라벨을 보고 최종 결정.
+# =============================================================================
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: soc-detection
+    folder: SOC Alerts
+    interval: 30s
+    rules:
+      # ── R1 경로 스캔 (TC-01): 1분간 404 ≥ 30 ────────────────────────────────
+      - uid: soc-r1-pathscan
+        title: "경로스캔"
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+          tc: TC-01
+          rule: R1
+          block: "on"
+        annotations:
+          summary: '경로 스캔 의심: IP {{ $labels.ip }} 가 1분간 404 {{ humanize $values.B.Value }}건'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 60, to: 0 }
+            datasourceUid: loki
+            model:
+              datasource: { type: loki, uid: loki }
+              editorMode: code
+              expr: 'sum by (ip) (count_over_time({job="web-access"} | json | status="404" [1m]))'
+              instant: true
+              queryType: instant
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+              refId: B
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [29] }
+              refId: C
+
+      # ── R2 민감 파일 (TC-02): sensitive_file ≥ 1  (알림만, 차단 X) ───────────
+      - uid: soc-r2-sensitivefile
+        title: "민감파일 접근"
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+          tc: TC-02
+          rule: R2
+          block: "off"
+        annotations:
+          summary: '민감 파일 접근: IP {{ $labels.ip }} (1분 {{ humanize $values.B.Value }}건) — 알림만, 차단 안 함'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 60, to: 0 }
+            datasourceUid: loki
+            model:
+              datasource: { type: loki, uid: loki }
+              editorMode: code
+              expr: 'sum by (ip) (count_over_time({job="web-access", attack_type="sensitive_file"} | json [1m]))'
+              instant: true
+              queryType: instant
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+              refId: B
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: C
+
+      # ── R3 무차별 대입 (TC-03): /rest/user/login + status=401 ≥ 10 ──────────
+      - uid: soc-r3-bruteforce
+        title: "무차별 대입"
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: warning
+          tc: TC-03
+          rule: R3
+          block: "on"
+        annotations:
+          summary: '로그인 무차별 대입 의심: IP {{ $labels.ip }} 가 1분간 401 {{ humanize $values.B.Value }}건'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 60, to: 0 }
+            datasourceUid: loki
+            model:
+              datasource: { type: loki, uid: loki }
+              editorMode: code
+              expr: 'sum by (ip) (count_over_time({job="web-access"} | json | request_uri=~"/rest/user/login.*" | status="401" [1m]))'
+              instant: true
+              queryType: instant
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+              refId: B
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [9] }
+              refId: C
+
+      # ── R4 SQL 인젝션 (TC-04): attack_type=sqli ≥ 1 ────────────────────────
+      - uid: soc-r4-sqli
+        title: "SQL 인젝션"
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+          tc: TC-04
+          rule: R4
+          block: "on"    # SQLi 는 고신뢰 공격 → 자동차단 대상 (R1·R3 와 함께)
+        annotations:
+          summary: 'SQLi 탐지: IP {{ $labels.ip }} (1분 {{ humanize $values.B.Value }}건). success_suspect 필드로 성공 의심 확인'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 60, to: 0 }
+            datasourceUid: loki
+            model:
+              datasource: { type: loki, uid: loki }
+              editorMode: code
+              expr: 'sum by (ip) (count_over_time({job="web-access", attack_type="sqli"} | json [1m]))'
+              instant: true
+              queryType: instant
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+              refId: B
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: C
+
+      # ── R5 XSS (TC-05): attack_type=xss ≥ 1 ────────────────────────────────
+      - uid: soc-r5-xss
+        title: "XSS"
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+          tc: TC-05
+          rule: R5
+          block: "off"   # 차단 연결은 토글 — policies.yaml 에서 결정
+        annotations:
+          summary: 'XSS 탐지: IP {{ $labels.ip }} (1분 {{ humanize $values.B.Value }}건)'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 60, to: 0 }
+            datasourceUid: loki
+            model:
+              datasource: { type: loki, uid: loki }
+              editorMode: code
+              expr: 'sum by (ip) (count_over_time({job="web-access", attack_type="xss"} | json [1m]))'
+              instant: true
+              queryType: instant
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+              refId: B
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: C
+
+      # ── R6 경로순회 (TC-07): attack_type=path_traversal ≥ 1 ─────────────────
+      - uid: soc-r6-pathtraversal
+        title: "경로순회"
+        condition: C
+        for: 0s
+        noDataState: OK
+        execErrState: OK
+        labels:
+          severity: critical
+          tc: TC-07
+          rule: R6
+          block: "off"   # 알림만 — 차단 대상 아님(R1·R3만 차단)
+        annotations:
+          summary: '경로순회 탐지: IP {{ $labels.ip }} (1분 {{ humanize $values.B.Value }}건)'
+        data:
+          - refId: A
+            relativeTimeRange: { from: 60, to: 0 }
+            datasourceUid: loki
+            model:
+              datasource: { type: loki, uid: loki }
+              editorMode: code
+              expr: 'sum by (ip) (count_over_time({job="web-access", attack_type="path_traversal"} | json [1m]))'
+              instant: true
+              queryType: instant
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource: { type: __expr__, uid: __expr__ }
+              type: reduce
+              reducer: last
+              expression: A
+              refId: B
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              datasource: { type: __expr__, uid: __expr__ }
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: C

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>게시판</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <h1>게시판</h1>
+  <% if (user) { %>
+    <p>
+      <%= user.username %>님
+      | <a href="/board/new">글쓰기</a>
+      <% if (user.role === 'admin') { %> | <a href="/admin">관리자</a><% } %>
+      | <form method="post" action="/logout" style="display:inline"><button type="submit">로그아웃</button></form>
+    </p>
+  <% } else { %>
+    <p><a href="/login">로그인</a> | <a href="/register">회원가입</a></p>
+  <% } %>
+  <ul>
+    <% posts.forEach(function (post) { %>
+      <li><a href="/board/<%= post.id %>"><%= post.title %></a> - <%= post.authorName %></li>
+    <% }); %>
+  </ul>
+</body>
+</html>

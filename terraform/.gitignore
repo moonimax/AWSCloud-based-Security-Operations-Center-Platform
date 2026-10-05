@@ -1,0 +1,4 @@
+lambda/*.zip
+
+# Terraform backend (버킷 이름 등 계정 정보)
+backend.hcl

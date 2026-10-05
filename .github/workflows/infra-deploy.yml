@@ -1,0 +1,119 @@
+﻿name: "Track A - Terraform Infrastructure Deploy"
+
+on:
+  push:
+    paths:
+      - 'terraform/**'
+    branches: [ main ]
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # AWS OIDC 토큰 발급 권한
+      contents: read    # 레포지토리 코드 체크아웃 권한
+
+    defaults:
+      run:
+        working-directory: ./terraform  # 실행 기준 디렉터리를 terraform 폴더로 고정
+
+    env:
+      # 기본값 없는 필수 변수. 값이 없으면 -input=false 때문에 무한 대기 대신 바로 에러로 실패한다.
+      TF_VAR_key_name: ${{ secrets.MONITOR_KEY_NAME }}
+      TF_VAR_admin_cidr: ${{ secrets.MONITOR_ADMIN_CIDR }}
+      # 차단 Lambda가 슬랙으로 "차단/탐지" 알림 보낼 Incoming Webhook (GitHub Secret 로 등록 필요). 없으면 슬랙만 생략되고 차단은 정상.
+      TF_VAR_block_slack_webhook: ${{ secrets.SLACK_WEBHOOK }}
+      # 대시보드(8080) 허용 IP 목록. 예: ["203.0.113.42/32"]  (시크릿 없으면 [] = 외부 미개방, SSM 전용)
+      TF_VAR_dashboard_cidrs: ${{ secrets.MONITOR_DASHBOARD_CIDRS || '[]' }}
+      # 원격 상태(tfstate) S3 버킷 이름. 계정 정보가 코드에 남지 않도록 시크릿으로 주입한다.
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # ==========================================
+      # [진단용 디버그 스텝 주석 처리 완료]
+      # 필요한 경우 아래 주석(#)을 해제하여 OIDC 토큰 클레임 확인 가능
+      # ==========================================
+      # - name: Debug OIDC Token Claims
+      #   run: |
+      #     TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r '.value')
+      #     echo "=== ACTUAL OIDC PAYLOAD ==="
+      #     echo "$TOKEN" | cut -d'.' -f2 | base64 -d 2>/dev/null | jq '{sub: .sub, aud: .aud, repository: .repository, ref: .ref}'
+
+      # OIDC Assume Role 자격 증명 설정 (세션 태그 인가 충돌 방지)
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ap-northeast-2
+          audience: sts.amazonaws.com
+          role-skip-session-tagging: true
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # MONITOR_KEY_NAME/MONITOR_ADMIN_CIDR 시크릿이 비었거나 형식이 틀리면
+      # terraform 변수 validation 에러(모호함) 대신 여기서 바로 명확하게 실패시킨다.
+      - name: Validate Terraform inputs
+        run: |
+          set -euo pipefail
+
+          if [ -z "${TF_VAR_key_name:-}" ]; then
+            echo "::error::MONITOR_KEY_NAME 시크릿이 비어있습니다."
+            exit 1
+          fi
+
+          if [ -z "${TF_VAR_admin_cidr:-}" ]; then
+            echo "::error::MONITOR_ADMIN_CIDR 시크릿이 비어있습니다."
+            exit 1
+          fi
+
+          if ! [[ "$TF_VAR_admin_cidr" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/32$ ]]; then
+            echo "::error::MONITOR_ADMIN_CIDR는 반드시 /32가 붙은 IPv4 형식이어야 합니다 (예: 203.0.113.42/32). 현재 값: ${TF_VAR_admin_cidr}"
+            exit 1
+          fi
+
+      # 코드 포맷팅 확인/자동 정렬 및 Provider 버전 최신화(-upgrade)
+      - name: Terraform Format & Init
+        run: |
+          # 코드 스타일 일관성을 유지하도록 포매팅 수행
+          terraform fmt
+          # .terraform.lock.hcl과 코드 제약 조건(~> 6.0)의 충돌 방지
+          if [ -z "${TF_STATE_BUCKET:-}" ]; then
+            echo "::error::TF_STATE_BUCKET 시크릿이 비어있습니다. 원격 상태 버킷 이름을 등록하세요."
+            exit 1
+          fi
+          terraform init -upgrade -input=false -backend-config="bucket=${TF_STATE_BUCKET}"
+
+      # 변경 사항 계획 수립 (-no-color로 터미널 가독성 확보), apply에서 재사용하도록 파일로 저장
+      # -input=false: 필수 변수 값이 비어있으면 무한 대기 대신 즉시 에러로 실패
+      - name: Terraform Plan
+        run: terraform plan -no-color -input=false -out=tfplan.bin
+
+      # state가 추적하지 않는 VPC(같은 이름)가 이미 AWS에 있으면 중복 생성을 막기 위해 중단
+      - name: Guard against duplicate infra
+        run: |
+          set -e
+          terraform show -json tfplan.bin > plan.json
+          CREATING_VPC=$(jq -r '
+            .resource_changes[]?
+            | select(.address == "aws_vpc.main" and (.change.actions | index("create")))
+            | .change.after.tags.Name // empty
+          ' plan.json)
+
+          if [ -n "$CREATING_VPC" ]; then
+            EXISTING_VPC_ID=$(aws ec2 describe-vpcs --region ap-northeast-2 \
+              --filters "Name=tag:Name,Values=${CREATING_VPC}" \
+              --query "Vpcs[0].VpcId" --output text)
+
+            if [ "$EXISTING_VPC_ID" != "None" ] && [ -n "$EXISTING_VPC_ID" ]; then
+              echo "::error::VPC '${CREATING_VPC}'가 이미 AWS에 존재합니다(${EXISTING_VPC_ID}). 현재 terraform state는 이 리소스를 추적하지 않아 중복 인프라가 생성됩니다. state를 import하거나 기존 리소스를 정리한 뒤 다시 실행하세요."
+              exit 1
+            fi
+          fi
+
+      # 수정된 변경분만 기존 인프라에 제자리(In-place) 자동 반영. 위에서 저장한 plan을 그대로 적용(재검증으로 인한 drift 방지)
+      - name: Terraform Apply
+        run: terraform apply -auto-approve -no-color -input=false tfplan.bin

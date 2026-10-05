@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title><%= post.title %></title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <h1><%= post.title %></h1>
+  <p>작성자: <%= post.authorName %></p>
+  <pre><%= post.content %></pre>
+  <% if (user && (user.id === post.authorId || user.role === 'admin')) { %>
+    <a href="/board/<%= post.id %>/edit">수정</a>
+    <form method="post" action="/board/<%= post.id %>/delete" style="display:inline">
+      <button type="submit">삭제</button>
+    </form>
+  <% } %>
+  <p><a href="/board">목록으로</a></p>
+</body>
+</html>

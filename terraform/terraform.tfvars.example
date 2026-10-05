@@ -1,0 +1,34 @@
+# Copy to terraform.tfvars. All resources deploy from this directory.
+project_name = "automovitsec"
+region = "ap-northeast-2"
+azs = ["ap-northeast-2a", "ap-northeast-2c"]
+web_desired_capacity = 1
+web_min_size = 1
+web_max_size = 3
+enable_exporters = false
+enable_flow_logs = true
+queue_name = "log-buffer-queue"
+
+# Monitoring EC2 (existing regional EC2 key pair required)
+name = "monitoring-integrated"
+key_name = "REPLACE_WITH_KEY_PAIR_NAME"
+admin_cidr = "203.0.113.10/32" # REPLACE with your public IPv4/32
+instance_type = "t3.medium"
+data_disk_gb = 40
+enable_cloudwatch_datasource = false
+
+# Copy generated nova-bedrock.tfvars.json here as nova.auto.tfvars.json.
+# Without it, these defaults disable AI and retain keyword search.
+bedrock_model_id = ""
+bedrock_resource_arns = []
+
+# ── 자동 차단(TC-08) 설정 — auto_block.tf ──────────────────────────────────
+# ALB 퍼블릭 서브넷에 연결된 NACL ID. 비우면 VPC 기본 NACL 을 자동 사용(권장).
+#   별도 NACL 을 쓰는 경우에만 지정: aws ec2 describe-network-acls --filters Name=association.subnet-id,Values=<퍼블릭서브넷ID> --query "NetworkAcls[].NetworkAclId"
+block_nacl_ids = []
+# 절대 차단 금지 = 인프라 IP만 (VPC CIDR / NAT EIP / ALB). 팀원(사람) IP는 넣지 말 것(검증 위해).
+block_whitelist_cidrs = ["10.0.0.0/16"]
+block_ttl_min         = 5   # 테스트 2 / 시연 5
+block_ssm_prefix      = "/automovitsec-soc"
+block_nacl_max_rules  = 20
+# block_slack_webhook = "https://hooks.slack.com/services/..."  # (선택) 슬롯초과 경고용. 커밋 금지.

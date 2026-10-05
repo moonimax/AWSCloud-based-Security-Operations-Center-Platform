@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="sentinel-ui-version" content="chat-ui-v2-20261001">
+<title>Sentinel · 대화형 관제</title><style>
+:root{color-scheme:dark;--bg:#0c111b;--card:#151e2d;--line:#30415a;--text:#edf3fc;--muted:#b0bfd3;--mint:#85ecd1}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:18px/1.6 system-ui,sans-serif}
+a{color:var(--mint)}button,input,select,textarea{font:inherit;color:inherit;background:#101927;border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+button{cursor:pointer}button:hover{border-color:var(--mint)}button:disabled{opacity:.45;cursor:default}:focus-visible{outline:2px solid var(--mint);outline-offset:3px}
+header{padding:22px 32px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px}.brand{text-decoration:none;font-size:28px;font-weight:800;letter-spacing:3px}
+.badge{font-size:15px;color:var(--muted)}.shell{display:grid;grid-template-columns:370px minmax(0,1fr);gap:24px;padding:24px}
+.chat{border:1px solid var(--line);border-radius:18px;background:var(--card);padding:20px;position:sticky;top:20px;align-self:start}
+h1{font-size:30px;margin:0 0 8px}h2{font-size:21px;margin:0}p{margin:8px 0;color:var(--muted)}.sub{font-size:15px}
+#conversation{height:380px;overflow:auto;padding:12px 0;display:flex;flex-direction:column;gap:12px}
+.bubble{border-radius:12px;padding:12px 14px;background:#202e42;white-space:pre-wrap;overflow-wrap:anywhere;font-size:17px}.bubble.user{background:#24483f;margin-left:20px}.bubble .role{display:block;font-size:13px;color:var(--mint);margin-bottom:4px}
+textarea{width:100%;min-height:95px;resize:vertical}.actions{display:flex;gap:8px;margin-top:8px}.primary{background:var(--mint);color:#09291f;font-weight:700}
+.conditions{border:1px solid #456b65;background:#142722;border-radius:14px;padding:18px;margin:20px 0}
+.condition-title{color:var(--mint);font-weight:700}.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.chip{background:#223e36;border:1px solid #3c6255;padding:5px 12px;border-radius:8px;font-size:16px}
+.filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:16px}.filters label{display:flex;flex-direction:column;font-size:16px;gap:5px}.filters input,.filters select{width:100%;min-width:0}
+summary{cursor:pointer}#message{min-height:30px;font-size:16px}#message.error{color:#ffb2b2}.heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.grid{display:grid;grid-template-columns:repeat(24,minmax(0,1fr));gap:14px;margin-top:14px}
+.panel{border:1px solid var(--line);border-radius:14px;background:var(--card);overflow:hidden;min-width:0;grid-column:span var(--span,24)}.panel.wide{grid-column:1/-1}
+.panel-head{padding:16px;display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap}
+.tools{display:flex;align-items:center;gap:5px;font-size:15px;flex-wrap:wrap}.tools button{padding:5px 10px}.tools input{width:90px;padding:5px}
+iframe{width:100%;height:330px;border:0;display:block;background:#111217}.panel.logs iframe{height:530px}
+.tabs{display:flex;flex-wrap:wrap;gap:7px;margin:20px 0 8px}.tab{padding:10px 16px;border-radius:10px 10px 0 0;background:#162236;color:#dae7f7;border:1px solid var(--line);font-size:16px}.tab[aria-selected="true"]{background:var(--mint);color:#09291f;font-weight:750;border-color:var(--mint)}
+.section-label{grid-column:1/-1;color:var(--mint);border-bottom:1px solid var(--line);padding:10px 0 4px;font-size:18px;font-weight:750}.dashboard-meta{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.dashboard-meta h2{font-size:19px;color:var(--mint)}.panel-range{font-size:14px;color:var(--muted)}.panel-head h3{font-size:17px;line-height:1.35;margin:0}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:500px;overflow:auto;background:#101927;padding:16px;font-size:16px}
+[hidden]{display:none!important}.panel-note{font-size:15px}
+@media(max-width:1450px){.grid{grid-template-columns:repeat(12,minmax(0,1fr))}.panel{grid-column:span var(--span-small,12)}.shell{grid-template-columns:320px minmax(0,1fr)}}
+@media(max-width:850px){.shell{grid-template-columns:1fr;padding:16px}.chat{position:static}#conversation{height:230px}header{padding:16px}.badge{max-width:180px}h1{font-size:26px}}
+@media(max-width:700px){.grid{grid-template-columns:1fr}.panel{grid-column:1/-1!important}.tabs{gap:5px}.tab{border-radius:8px;padding:7px 10px;font-size:14px}}
+#dashboard-tabs{flex-wrap:nowrap;overflow-x:auto;margin:0;padding:10px 24px 0}#dashboard-tabs .tab{flex:0 0 auto;white-space:nowrap}.shell{padding-top:16px}
+</style></head><body>
+<header><a id="home" class="brand" href="/">◈ SENTINEL</a><span id="engine" class="badge">연결 확인 중</span></header>
+<nav id="dashboard-tabs" class="tabs" aria-label="Grafana 대시보드 선택" role="tablist"></nav>
+<div class="shell">
+<aside class="chat" aria-label="관제 챗봇">
+<div class="chat-scroll">
+<h2>관제 어시스턴트</h2><p class="sub">조회할 로그와 기간을 대화로 요청하세요.</p>
+<div id="conversation" role="log" aria-live="polite"></div>
+<form id="chat-form"><label class="sub" for="question">메시지</label><textarea id="question" maxlength="500" required placeholder="조회할 로그와 조건을 입력하세요"></textarea><div class="actions"><button id="submit" class="primary">보내기</button><button type="button" id="new-chat">대화 지우기</button></div></form>
+<p class="sub" id="privacy">대화형 로그 조회입니다. 심층 분석은 별도 버튼으로 실행합니다. 파일 업로드는 지원하지 않습니다. 각 요청에 조건을 함께 적어주세요.</p>
+<p class="sub" id="ui-version">UI: chat-ui-v2-20261001</p>
+</div>
+</aside>
+<main id="workspace">
+<div class="heading"><div><p class="sub" id="breadcrumb">홈 / 전체 현황</p><h1 id="page-title">웹 서비스 통합 관제</h1></div><button id="reset">전체 현황으로</button></div>
+<section class="conditions" aria-label="현재 적용된 조회 조건"><div class="condition-title">현재 조회 조건</div><div id="chips" class="chips"></div>
+<details id="filter-details"><summary>조건 변경</summary><form id="manual" class="filters">
+<label>로그 종류<select name="log_type"><option value="all">전체</option><option value="nginx">NGINX</option><option value="alb">ALB</option><option value="vpc_flow">VPC Flow</option></select></label>
+<label>조회 기간 (분 입력 · 최대 일주일)<input type="number" name="minutes" min="1" max="10080" step="1" value="15" required><span id="manual-duration" class="sub"></span></label>
+<label>서버<input name="server" placeholder="전체 서버"></label><label>IP<input name="ip" placeholder="전체 IP"></label><label>정확한 경로<input name="path" placeholder="전체 경로"></label>
+<label>응답 코드<select name="status"><option value="all">전체</option><option>4xx</option><option>5xx</option><option>200</option><option>401</option><option>403</option><option>404</option><option>500</option></select></label>
+<label>이벤트<select name="event"><option value="all">전체</option><option value="login_failed">로그인 실패</option><option value="authorization_denied">권한 거부</option><option value="suspicious_request">공격 의심</option></select></label>
+<label>네트워크 동작<select name="action"><option value="all">전체</option><option>ACCEPT</option><option>REJECT</option></select></label><button class="primary">조건 적용</button>
+</form></details></section>
+<div class="heading"><p id="message" role="status">실제 수집 로그를 조회합니다.</p><a id="full" target="_blank" rel="noopener">Grafana에서 열기 ↗</a></div>
+<p class="panel-note">관리자가 대시보드 JSON을 폴더에 추가하면 탭이 생성됩니다. 각 패널의 ＋는 조회 기간을 5분 늘리고 −는 5분 줄입니다. 최소 1분, 최대 일주일입니다. ↺는 현재 조회 기간으로 복원합니다. 변수 없는 탭에는 해당 검색 조건이 적용되지 않습니다.</p>
+
+<div class="dashboard-meta"><div><h2 id="design-title">대시보드를 불러오는 중…</h2><p id="design-message" class="sub" role="status"></p></div><button id="reload-dashboard">↻ 목록 새로고침</button></div>
+<section id="dashboard" class="grid" role="tabpanel" aria-label="Grafana 패널"></section>
+<details id="evidence" hidden><summary>조회 시점의 근거 로그 · 페이지별 조회</summary><p class="sub" id="snapshot"></p><pre id="query"></pre><pre id="logs"></pre></details>
+</main></div>
+<script>
+const $=s=>document.querySelector(s);
+const DEFAULT={minutes:60,server:'',ip:'',path:'',status:'all',event:'all',log_type:'all',action:'all'};
+const MAX_MINUTES = 7 * 24 * 60;
+const PANEL_STEP_MINUTES = 5;
+function formatDuration(value) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) return '기간 오류';
+  if (n === 1440) return '하루';
+  if (n === 10080) return '일주일';
+  const days = Math.floor(n / 1440);
+  const hours = Math.floor((n % 1440) / 60);
+  const minutes = n % 60;
+  return [days ? `${days}일` : '', hours ? `${hours}시간` : '', minutes ? `${minutes}분` : ''].filter(Boolean).join(' ');
+}
+function shiftPanelRange(id, offset) {
+  const value = panelMinutes.get(panelKey(id)) ?? current.minutes;
+  setPanelRange(id, Math.max(1, Math.min(MAX_MINUTES, value + offset)));
+}
+const names={all:'전체 로그',nginx:'NGINX',alb:'ALB',vpc_flow:'VPC Flow'};
+let current={...DEFAULT},version=0,controller=null,dashboardUrl='',busy=false;
+let dashboards=[], activeUid='', panelMinutes=new Map(), catalogueVersion=0;
+function status(t,error=false){$('#message').textContent=t;$('#message').classList.toggle('error',error);}
+function say(role,text){const b=document.createElement('div');b.className='bubble '+role;const label=document.createElement('span');label.className='role';label.textContent=role==='user'?'나':'Sentinel';b.append(label,document.createTextNode(text));$('#conversation').append(b);while($('#conversation').children.length>40)$('#conversation').firstElementChild.remove();const pane=document.querySelector('.chat-scroll');if(pane)requestAnimationFrame(()=>{pane.scrollTop=pane.scrollHeight;});}
+function activeDashboard(){return dashboards.find(d=>d.uid===activeUid);}
+function urlFor(p,d=activeDashboard()){const u=new URL('/grafana/d/'+encodeURIComponent(d?.uid||'integrated-multilog'),location.origin);u.searchParams.set('from','now-'+p.minutes+'m');u.searchParams.set('to','now');u.searchParams.set('refresh','1m');const vars=new Set(d?.variables||[]);for(const k of ['server','ip','path','event','log_type','action'])if(vars.has(k))u.searchParams.set('var-'+k,p[k]&&p[k]!=='all'?p[k]:'$__all');if(vars.has('status')){if(p.status==='4xx'||p.status==='5xx'){for(let n=Number(p.status[0])*100;n<Number(p.status[0])*100+100;n++)u.searchParams.append('var-status',n);}else u.searchParams.set('var-status',p.status==='all'?'$__all':p.status);}return u.pathname+u.search;}
+function renderConditions(){const items=[];items.push('기간: 최근 '+formatDuration(current.minutes),'로그: '+names[current.log_type],'서버: '+(current.server||'전체'),'IP: '+(current.ip||'전체'),'경로: '+(current.path||'전체'),'응답: '+(current.status==='all'?'전체':current.status),'이벤트: '+({all:'전체',login_failed:'로그인 실패',authorization_denied:'권한 거부',suspicious_request:'공격 의심'}[current.event]),'네트워크: '+(current.action==='all'?'전체':current.action));$('#chips').replaceChildren();for(const t of items){const el=document.createElement('span');el.className='chip';el.textContent=t;$('#chips').append(el);}for(const [k,v] of Object.entries(current)){const el=$('#manual').elements.namedItem(k);if(el){if(el.tagName==='SELECT'&&![...el.options].some(o=>o.value===String(v))){const o=document.createElement('option');o.value=v;o.textContent=v;el.append(o);}el.value=v;}}}
+function updateManualDuration(){const n=Number($('#manual').elements.namedItem('minutes').value);$('#manual-duration').textContent=Number.isInteger(n)&&n>=1&&n<=MAX_MINUTES?'최근 '+formatDuration(n):'1분~일주일(10,080분)을 입력하세요.';}
+$('#manual').elements.namedItem('minutes').addEventListener('input',updateManualDuration);
+function panelKey(id){return activeUid+':'+id;}
+function panelUrl(id,minutes){const u=new URL(urlFor({...current,minutes}),location.origin);u.pathname=u.pathname.replace('/d/','/d-solo/');u.searchParams.set('panelId',String(id));u.searchParams.set('theme','dark');u.searchParams.set('hideLogo','true');return u.pathname+u.search;}
+function setPanelRange(id, n) {
+  n = Number(n);
+  const key = panelKey(id);
+  const input = document.getElementById('minutes-' + id);
+  if (!Number.isInteger(n) || n < 1 || n > MAX_MINUTES) {
+    status('조회 시간은 1분~일주일(10,080분) 사이의 정수로 입력하세요.', true);
+    input.value = panelMinutes.get(key) ?? current.minutes;
+    return;
+  }
+  panelMinutes.set(key, n);
+  const frame = document.getElementById('panel-' + id);
+  if (frame) frame.src = panelUrl(id, n);
+  input.value = n;
+  document.getElementById('range-' + id).textContent = '최근 ' + formatDuration(n);
+  document.getElementById('in-' + id).disabled = n >= MAX_MINUTES;
+  document.getElementById('out-' + id).disabled = n <= 1;
+  document.getElementById('reset-' + id).disabled = n === current.minutes;
+}
+function renderTabs(){const root=$('#dashboard-tabs');root.replaceChildren();for(const d of dashboards){const b=document.createElement('button');b.type='button';b.className='tab';b.role='tab';b.textContent=d.title;b.setAttribute('aria-selected',String(d.uid===activeUid));b.onclick=()=>selectTab(d.uid);root.append(b);}}
+function selectTab(uid,push=true){if(!dashboards.some(d=>d.uid===uid))return;activeUid=uid;renderTabs();show(current,false);if(push)history.pushState({plan:current,uid:activeUid},'','#dashboard');}
+function renderPanels(){const root=$('#dashboard'),dash=activeDashboard();root.replaceChildren();if(!dash){$('#design-title').textContent='표시할 대시보드 없음';$('#design-message').textContent='관리자가 대시보드 JSON을 등록해야 합니다.';return;}
+ $('#design-title').textContent=dash.title;
+ const missing=Object.entries(current).filter(([k,v])=>k!=='minutes'&&v!==DEFAULT[k]&&!dash.variables.includes(k)).map(([k])=>k);
+ $('#design-message').textContent=missing.length?'이 탭에 적용할 수 없는 검색 조건: '+missing.join(', ')+'. 로그 조회 결과는 위의 근거 목록에서 확인하세요.':'Grafana 패널 · '+dash.panels.filter(p=>p.type!=='row').length+'개 · '+(dash.source==='managed'?'관리자 폴더':'기본 제공');
+ for(const p of dash.panels){if(p.type==='row'){const label=document.createElement('div');label.className='section-label';label.textContent=p.title;root.append(label);continue;}
+  const id=p.id,key=panelKey(id),n=panelMinutes.get(key)??current.minutes;if(!panelMinutes.has(key))panelMinutes.set(key,n);
+  const card=document.createElement('section');card.className='panel'+(p.type==='logs'?' logs':'');const w=Number.isInteger(p.w)?Math.max(1,Math.min(24,p.w)):24;card.style.setProperty('--span',w);card.style.setProperty('--span-small',Math.min(12,Math.ceil(w/2)));const head=document.createElement('div');head.className='panel-head';const title=document.createElement('h3');title.textContent=p.title;const tools=document.createElement('div');tools.className='tools';
+  const range=document.createElement('span');range.id='range-'+id;range.className='panel-range';tools.append(range);
+  for (const [name, label, offset] of [
+    ['out', '−', -PANEL_STEP_MINUTES],
+    ['in', '＋', PANEL_STEP_MINUTES],
+    ['reset', '↺', null]
+  ]) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.id = name + '-' + id; b.textContent = label;
+    b.title = offset === null ? '검색 기간으로 복원' : (offset < 0 ? '5분 줄이기' : '5분 늘리기');
+    b.setAttribute('aria-label', p.title + ' ' + b.title);
+    b.onclick = () => offset === null ? setPanelRange(id, current.minutes) : shiftPanelRange(id, offset);
+    tools.append(b);
+  }
+  const input = document.createElement('input');
+  input.id = 'minutes-' + id;
+  input.type = 'text'; input.inputMode = 'numeric'; input.pattern = '[0-9]+';
+  input.setAttribute('aria-label', p.title + ' 조회 기간(분, 1~10080)');
+  input.title = '분 단위 직접 입력 · 키보드 위/아래 화살표로 5분 조절';
+  input.onchange = () => setPanelRange(id, input.value.trim() === '' ? NaN : input.value);
+  input.onkeydown = e => {
+    if (e.key === 'Enter') { input.onchange(); input.blur(); }
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      const n = Number(input.value);
+      if (!Number.isInteger(n) || n < 1 || n > MAX_MINUTES) { input.onchange(); return; }
+      const offset = e.key === 'ArrowUp' ? PANEL_STEP_MINUTES : -PANEL_STEP_MINUTES;
+      setPanelRange(id, Math.max(1, Math.min(MAX_MINUTES, n + offset)));
+    }
+  };
+  tools.append(input, document.createTextNode('분 입력'));
+
+  head.append(title,tools);const frame=document.createElement('iframe');frame.id='panel-'+id;frame.title=p.title;frame.loading='lazy';frame.style.height=Math.max(210,Math.min(650,(Number(p.h)||8)*27))+'px';card.append(head,frame);root.append(card);setPanelRange(id,n);
+ }
+}
+async function refreshDashboards(){const ticket=++catalogueVersion;$('#reload-dashboard').disabled=true;try{const r=await fetch('/api/dashboards',{cache:'no-store'});if(!r.ok)throw Error('목록 조회 실패');const data=await r.json();if(ticket!==catalogueVersion)return;dashboards=data.dashboards;if(!dashboards.some(d=>d.uid===activeUid))activeUid=dashboards[0]?.uid||'';renderTabs();show(current,false);if(data.warnings.length)$('#design-message').textContent+=' · 제외: '+data.warnings.slice(0,3).join('; ');}catch(e){$('#design-message').textContent='대시보드 목록을 불러오지 못했습니다: '+e.message;}finally{$('#reload-dashboard').disabled=false;}}
+function show(p,push=true){current={...DEFAULT,...p};version++;dashboardUrl=urlFor(current);$('#full').href=dashboardUrl;const detail=current.log_type!=='all'||Object.keys(DEFAULT).some(k=>k!=='minutes'&&current[k]!==DEFAULT[k]);$('#workspace').classList.toggle('detail',detail);$('#page-title').textContent=detail?names[current.log_type]+' · 조회 결과':'웹 서비스 통합 관제';$('#breadcrumb').textContent=detail?'홈 / 로그 상세':'홈 / 전체 현황';renderConditions();updateManualDuration();renderPanels();if(push)history.pushState({plan:current,uid:activeUid},'',detail?'#logs':'#overview');}
+function clearEvidence(){$('#evidence').hidden=true;$('#logs').textContent='';$('#query').textContent='';}
+function home(push=true){if(controller)controller.abort();busy=false;$('#submit').disabled=false;clearEvidence();panelMinutes.clear();show(DEFAULT,push);status('전체 현황 · Grafana는 1분마다 갱신됩니다.');}
+async function run(body){if(busy)return;busy=true;$('#submit').disabled=true;const ticket=version;controller=new AbortController();const activeController=controller;say('user',body.text||'직접 선택한 조회 조건 적용');$('#question').value='';status('로그 조회 중…');
+ try{const r=await fetch('/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:controller.signal});const d=await r.json();if(!r.ok)throw Error(d.error||'조회 실패');if(ticket!==version)return;panelMinutes.clear();show(d.plan);say('assistant',d.summary+' 선택한 조건의 화면을 열었습니다.');status('조회 완료 · 대화 답변과 근거 목록은 조회 시점 기준입니다.');$('#query').textContent=d.query;$('#logs').textContent=d.rows.map(x=>x.line).join('\n')||'해당 조건의 로그가 없습니다.';$('#snapshot').textContent=new Date().toLocaleString('ko-KR')+' 조회 · 패널 시간 변경과 독립적인 기록';$('#evidence').hidden=false;$('#workspace').scrollIntoView({behavior:'smooth',block:'start'});}
+ catch(e){if(e.name!=='AbortError'&&ticket===version){status(e.message,true);say('assistant',e.message);}}
+ finally{if(controller===activeController&&!activeController.signal.aborted){busy=false;$('#submit').disabled=false;}}}
+$('#chat-form').onsubmit=e=>{e.preventDefault();const text=$('#question').value.trim();if(text)run({text});};
+$('#manual').onsubmit=e=>{e.preventDefault();const plan=Object.fromEntries(new FormData(e.target));plan.minutes=Number(plan.minutes);run({plan});};
+$('#new-chat').onclick=()=>{$('#conversation').replaceChildren();say('assistant','새 대화입니다. 조회할 로그 종류와 기간을 알려주세요.');};
+$('#home').onclick=e=>{if(e.ctrlKey||e.metaKey)return;e.preventDefault();home();};$('#reset').onclick=()=>home();
+window.onpopstate=e=>{if(controller)controller.abort();busy=false;$('#submit').disabled=false;clearEvidence();if(dashboards.some(d=>d.uid===e.state?.uid))activeUid=e.state.uid;renderTabs();panelMinutes.clear();show(e.state?.plan||DEFAULT,false);status('선택 조건을 복원했습니다.');};
+say('assistant','안녕하세요. 로그 종류, 기간, IP 또는 응답 코드를 알려주시면 해당 로그와 그래프를 열어드릴게요.');
+show(DEFAULT,false);history.replaceState({plan:current,uid:activeUid},'','#overview');
+$('#reload-dashboard').onclick=refreshDashboards;
+refreshDashboards();
+fetch('/api/config').then(r=>{if(!r.ok)throw Error();return r.json();}).then(d=>{$('#engine').textContent=d.engine==='bedrock'?'AI 조회 · Bedrock 설정':'키워드 조회 · AI 미연결';}).catch(()=>{$('#engine').textContent='조회 서비스 연결 오류';});
+</script><!-- sentinel-chat-resize:start -->
+<style>
+@media(min-width:851px){
+  .shell{grid-template-columns:var(--chat-width,370px) minmax(0,1fr)!important}
+  .shell>.chat{min-width:0;overflow:visible}
+  .shell>main{min-width:0}
+  .chat .actions{flex-wrap:wrap}
+  #chat-resizer{position:absolute;right:-19px;top:0;bottom:0;width:14px;cursor:col-resize;touch-action:none;z-index:10001;border-radius:8px}
+  #chat-resizer::after{content:"";position:absolute;top:12px;bottom:12px;left:5px;width:3px;background:var(--line,#456);border-radius:4px}
+  #chat-resizer:hover::after,#chat-resizer:focus-visible::after{background:var(--mint,#85ecd1)}
+  body.chat-resizing,body.chat-resizing *{cursor:col-resize!important;user-select:none!important}
+  body.chat-resizing::after{content:"";position:fixed;inset:0;z-index:10000;cursor:col-resize}
+}
+@media(max-width:850px){#chat-resizer{display:none}}
+</style>
+<script>
+(() => {
+  const shell = document.querySelector('.shell');
+  const chat = shell?.querySelector(':scope > .chat');
+  if (!chat || document.getElementById('chat-resizer')) return;
+  const key = 'sentinel-chat-width-v1';
+  const handle = document.createElement('div');
+  handle.id = 'chat-resizer'; handle.tabIndex = 0;
+  handle.setAttribute('role', 'separator');
+  handle.setAttribute('aria-orientation', 'vertical');
+  handle.setAttribute('aria-label', '챗봇 너비 조절');
+  if (!chat.id) chat.id = 'sentinel-chat-pane';
+  handle.setAttribute('aria-controls', chat.id);
+  handle.title = '드래그 또는 좌우 방향키로 조절 · 최대 창 너비 50% · 더블클릭 초기화';
+  chat.append(handle);
+  const defaultWidth = () => innerWidth <= 1450 ? 320 : 370;
+  let preferred = defaultWidth(), pointer = null, offset = 0;
+  try { const saved = Number(localStorage.getItem(key)); if (saved >= 260) preferred = saved; } catch {}
+  function apply(width) {
+    if (innerWidth <= 850) return;
+    const max = Math.floor(document.documentElement.clientWidth / 2);
+    const value = Math.max(260, Math.min(max, width));
+    shell.style.setProperty('--chat-width', value + 'px');
+    handle.setAttribute('aria-valuemin', '260');
+    handle.setAttribute('aria-valuemax', String(max));
+    handle.setAttribute('aria-valuenow', String(Math.round(value)));
+    handle.setAttribute('aria-valuetext', Math.round(value) + '픽셀');
+    return value;
+  }
+  function save() { try { localStorage.setItem(key, String(preferred)); } catch {} }
+  function end() {
+    if (pointer === null) return;
+    const old = pointer; pointer = null;
+    document.body.classList.remove('chat-resizing');
+    if (handle.hasPointerCapture(old)) handle.releasePointerCapture(old);
+    save();
+  }
+  handle.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || innerWidth <= 850) return;
+    e.preventDefault(); handle.focus(); pointer = e.pointerId;
+    offset = e.clientX - chat.getBoundingClientRect().right;
+    handle.setPointerCapture(pointer); document.body.classList.add('chat-resizing');
+  });
+  handle.addEventListener('pointermove', e => {
+    if (e.pointerId !== pointer) return;
+    preferred = apply(e.clientX - chat.getBoundingClientRect().left - offset);
+  });
+  for (const event of ['pointerup','pointercancel','lostpointercapture']) handle.addEventListener(event,end);
+  window.addEventListener('blur', end);
+  handle.addEventListener('dblclick', () => { preferred = defaultWidth(); apply(preferred); save(); });
+  handle.addEventListener('keydown', e => {
+    const current = chat.getBoundingClientRect().width;
+    const values = {ArrowLeft:current-20,ArrowRight:current+20,Home:260,End:document.documentElement.clientWidth/2};
+    if (!(e.key in values)) return;
+    e.preventDefault(); preferred = apply(values[e.key]); save();
+  });
+  window.addEventListener('resize', () => { end(); apply(preferred); });
+  apply(preferred);
+})();
+</script>
+<!-- sentinel-chat-resize:end -->
+
+<script src="/performance.js"></script>
+
+<!-- sentinel-chat-flow:start -->
+<style>
+.shell>.chat{padding:0}
+.chat-scroll{max-height:calc(100vh - 80px);max-height:calc(100dvh - 80px);overflow-y:scroll;overflow-x:hidden;scrollbar-gutter:stable;padding:20px;border-radius:18px;overscroll-behavior:contain}
+#conversation{height:auto;min-height:160px;max-height:none;overflow:visible;scrollbar-gutter:auto}
+#conversation>.bubble{flex-shrink:0}
+.chat-scroll{scrollbar-width:auto;scrollbar-color:var(--mint) #101927}
+.chat-scroll::-webkit-scrollbar{width:10px}
+.chat-scroll::-webkit-scrollbar-track{background:#101927;border-radius:8px}
+.chat-scroll::-webkit-scrollbar-thumb{background:#648f89;border:2px solid #101927;border-radius:8px}
+#chat-action-hint{font-size:13px;margin:6px 0}
+#deep-analysis{width:100%}
+@media(max-width:850px){.chat-scroll{max-height:75vh;max-height:75dvh}#conversation{height:auto;min-height:120px}}
+</style>
+<script>
+/* sentinel-chat-flow v2: static scroll + independent keyboard + late analysis binding */
+(() => {
+  const form = document.querySelector('#chat-form');
+  const input = document.querySelector('#question');
+  const send = document.querySelector('#submit');
+  let deep = null;
+  const chat = document.querySelector('.chat');
+  if (!form || !input || !send || !chat) return;
+
+  const hint = document.createElement('p');
+  hint.id = 'chat-action-hint'; hint.className = 'sub';
+  hint.setAttribute('aria-live', 'polite');
+  input.after(hint);
+  input.setAttribute('aria-describedby', hint.id);
+  const modeButton = document.createElement('button');
+  modeButton.type = 'button'; modeButton.textContent = '조회 조건 다시 입력';
+  form.querySelector('.actions').append(modeButton);
+  let mode = 'search', generation = 0, composing = false, analyzing = false;
+
+  function setMode(next) {
+    mode = next;
+    send.classList.toggle('primary', mode === 'search');
+    if (deep) deep.classList.toggle('primary', mode === 'analysis');
+    input.placeholder = mode === 'analysis'
+      ? '현재 조회한 로그에서 분석할 내용을 입력하세요. 예: XSS 의심 요청의 문자열과 근거를 설명해줘.'
+      : '조회할 조건과 로그를 입력하세요';
+    hint.textContent = mode === 'analysis'
+      ? 'Enter: 현재 조건 심층 분석 · Shift+Enter: 줄바꿈 · 기간·IP 변경은 조회 조건 다시 입력'
+      : 'Enter: 보내기 · Shift+Enter: 줄바꿈';
+    modeButton.hidden = mode !== 'analysis';
+  }
+  const oldRun = run;
+  run = async function(body) {
+    if (busy || analyzing) return;
+    const mine = ++generation;
+    const typed = input.value;
+    const before = window.sentinelSnapshot?.();
+    const beforeVersion = version;
+    try {
+      await oldRun(body);
+      const after = window.sentinelSnapshot?.();
+      if (mine !== generation || document.querySelector('#evidence').hidden) return;
+      if (typeof window.sentinelSnapshot === 'function'
+          ? (!after || after === before) : version === beforeVersion) return;
+      // Do not erase a new draft typed while the request was in flight.
+      if (input.value === typed) input.value = '';
+      setMode('analysis');
+      input.focus({preventScroll: true});
+    } finally {
+      // Search failures keep the existing mode and draft.
+    }
+  };
+
+  function bindAnalysis() {
+    const found = document.querySelector('#deep-analysis');
+    if (!found || found === deep || typeof found.onclick !== 'function') return;
+    deep = found;
+    const oldDeep = deep.onclick;
+    deep.onclick = async function(event) {
+      if (busy || analyzing || this.disabled) return;
+      analyzing = true; send.disabled = true;
+      try { await oldDeep.call(this, event); }
+      finally { analyzing = false; send.disabled = busy; }
+    };
+    setMode(mode);
+  }
+  function analyze() {
+    bindAnalysis();
+    if (!deep) {
+      hint.textContent = '분석 기능이 로드되지 않았습니다. /analysis.js 로딩과 Agent 버전을 확인하세요.';
+      return;
+    }
+    if (!deep.disabled) deep.click();
+  }
+  bindAnalysis();
+  const analysisObserver = new MutationObserver(bindAnalysis);
+  analysisObserver.observe(form, {childList:true, subtree:true});
+  modeButton.onclick = () => { setMode('search'); input.focus(); };
+  form.onsubmit = event => {
+    event.preventDefault();
+    if (composing || busy || analyzing) return;
+    // An explicit click on Send always starts a new search.
+    if (event.submitter === send || mode === 'search') {
+      const text = input.value.trim();
+      if (text) run({text});
+    } else analyze();
+  };
+  input.addEventListener('compositionstart', () => { composing = true; });
+  input.addEventListener('compositionend', () => { composing = false; });
+  input.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' || event.shiftKey || event.isComposing ||
+        composing || event.keyCode === 229) return;
+    event.preventDefault();
+    if (event.repeat || busy || analyzing) return;
+    if (mode === 'analysis') {
+      analyze();
+    } else if (!send.disabled) form.requestSubmit(send);
+  });
+  const oldHome = home;
+  home = function(...args) {
+    ++generation; input.value = ''; setMode('search');
+    return oldHome(...args);
+  };
+  const clear = document.querySelector('#new-chat');
+  const oldClear = clear.onclick;
+  clear.onclick = function(event) {
+    ++generation; input.value = ''; setMode('search');
+    oldClear.call(this, event);
+  };
+  const oldPop = window.onpopstate;
+  window.onpopstate = function(event) {
+    ++generation; input.value = ''; setMode('search');
+    if (oldPop) oldPop.call(this, event);
+  };
+  document.querySelector('#privacy').textContent =
+    '먼저 로그를 조회한 뒤 현재 조건으로 심층 분석하세요. 파일 업로드는 지원하지 않습니다.';
+  setMode('search');
+})();
+
+</script>
+<!-- sentinel-chat-flow:end -->
+<script src="/analysis.js"></script>
+</body></html>

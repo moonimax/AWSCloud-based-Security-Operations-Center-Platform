@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*runtime/.env
+*runtime/secrets/
+*runtime/data/
+.terraform/
+*.tfstate*
+*.tfplan
+*terraform/terraform.tfvars
+*terraform/deployment.zip
